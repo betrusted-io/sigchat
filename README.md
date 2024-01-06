@@ -11,8 +11,8 @@ Contributions to development of apps/sigchat and libs/chat are most welcome.
 
 ### Environment Setup
 
-- clone `xous-core`: git clone https://github.com/betrusted-io/xous-core.git
-- clone `sigchat`: git clone https://github.com/bunnie/sigchat.git
+- clone `xous-core`: `git clone https://github.com/betrusted-io/xous-core.git`
+- clone `sigchat`: `git clone https://github.com/bunnie/sigchat.git`
 
 This creates a directory structure like this:
 
