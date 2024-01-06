@@ -16,9 +16,11 @@ Contributions to development of apps/sigchat and libs/chat are most welcome.
 
 This creates a directory structure like this:
 
+```
 build directory
 ├── xous-core
 └── sigchat
+```
 
 ### Manifest Setup
 
