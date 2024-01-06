@@ -1,0 +1,78 @@
+[package]
+name = "sigchat"
+version = "0.1.0"
+authors = ["john <john@nhoj.info>"]
+edition = "2018"
+description = "Matrix chat"
+
+# Dependency versions enforced by Cargo.lock.
+[dependencies]
+log = "0.4.14"
+num-derive = { version = "0.3.3", default-features = false}
+num-traits = { version = "0.2.14", default-features = false}
+xous = "0.9.52"
+xous-ipc = "0.9.52"
+log-server = { package = "xous-api-log", version = "0.1.48" }
+ticktimer-server = { package = "xous-api-ticktimer", version = "0.9.48" }
+xous-names = { package = "xous-api-names", version = "0.9.50" }
+gam = { path = "../xous-core/services/gam" }
+graphics-server = { path = "../xous-core/services/graphics-server" }
+trng = { path = "../xous-core/services/trng"}
+locales = { path = "../xous-core/locales"}
+ime-plugin-api = { path = "../xous-core/services/ime-plugin-api"}
+ime-plugin-shell = { path = "../xous-core/services/ime-plugin-shell"}
+content-plugin-api = { path = "../xous-core/services/content-plugin-api"} # all content canvas providers must provide this API
+codec = { path = "../xous-core/services/codec"}
+com = { path = "../xous-core/services/com"}
+com_rs = { git = "https://github.com/betrusted-io/com_rs", rev = "891bdd3ca8e41f81510d112483e178aea3e3a921" }
+llio = { path = "../xous-core/services/llio"}
+net = { path = "../xous-core/services/net" }
+pddb = { path = "../xous-core/services/pddb" }
+# new dependencies for sigcli
+chat = { path = "../xous-core/libs/chat" }
+modals = { path = "../xous-core/services/modals" }
+percent-encoding = "2.2"
+rkyv = {version = "0.4.3", default-features = false, features = ["const_generics"]}
+rustls = { version = "0.21.7", features = ["dangerous_configuration"] }
+serde = { version = "1.0", features = [ "derive" ] }
+tls = { path = "../xous-core/libs/tls" }
+ureq = { version = "2.7.1", features = ["json"] }
+url = "2.2.2"
+
+[features]
+default = []
+
+# prefer hardware-accelerated versions of services
+[patch.crates-io.sha2]
+path = "../xous-core/services/engine-sha512"
+
+[patch.crates-io.aes]
+path = "../xous-core/services/aes"
+
+[patch.crates-io.curve25519-dalek]
+git="https://github.com/betrusted-io/curve25519-dalek.git"
+branch="main"
+#path = "../curve25519-dalek"  # when doing local dev work
+# feature overrides are specified at the crate level
+
+[patch."https://github.com/betrusted-io/xous-engine-25519.git"]
+engine-25519 = {path = "../xous-core/services/engine-25519"}
+
+[patch.crates-io.usb-device]
+git="https://github.com/betrusted-io/usb-device.git"
+branch="main"
+# local dev shortcuts
+#path = "../usb-device"
+
+[patch.crates-io.getrandom]
+path = "../xous-core/imports/getrandom"
+
+[patch.crates-io.ring]
+# path = "../ring-xous"  # for local dev only
+git="https://github.com/betrusted-io/ring-xous"
+rev="4296c2e7904898766cf7d8d589759a129794783b" # use the commitref because we're still updating the branch
+
+#[patch.crates-io.utralib]
+#path = "../xous-core/utralib"
+#[patch.crates-io.svd2utra]
+#path = "../xous-core/svd2utra"
