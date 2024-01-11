@@ -36,6 +36,7 @@ rkyv = {version = "0.4.3", default-features = false, features = ["const_generics
 rustls = { version = "0.21.7", features = ["dangerous_configuration"] }
 serde = { version = "1.0", features = [ "derive" ] }
 tls = { path = "../xous-core/libs/tls" }
+tungstenite = "0.21.0"
 ureq = { version = "2.7.1", features = ["json"] }
 url = "2.2.2"
 
