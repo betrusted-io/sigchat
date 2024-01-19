@@ -79,3 +79,19 @@ The `sigchat` servers is set to receive:
 
 ## Troubleshooting
 
+## License
+
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+
+This project is dual-licensed under the terms of the AGPL 3.0 license, as a derivative work; and under the terms of the Apache 2.0 license.
+`SPDX-License-Identifier: AGPL-3.0 OR Apache-2.0`
+
+You can choose between one of them if you use this work.
+* [AGPLv3.0](https://www.gnu.org/licenses/license-list.html#AGPLv3.0)
+* [Apachev2.0](https://www.apache.org/licenses/GPL-compatibility.html)
+
+We have a **desire** to license Sigchat under Apache-2.0 so that elements may be readily incorporated into other future [Xous](https://github.com/betrusted-io/xous-core) related projects.
+We are **required** to license any derivative works of [libsignal](https://github.com/signalapp/libsignal) under the AGPL-3.0 licence.
+
+
