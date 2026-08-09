@@ -1,0 +1,35 @@
+[package]
+name = "xous-pddb-ipc"
+description = "Hand-rolled PDDB IPC client. rv32-xous-only; bypasses the xous-core/services/pddb crate (whose `gen1` feature pulls in 10+ services as path-deps). Replicates just the wire protocol our `KvBackend` needs."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# An earlier probe (commit f7a9e7b) verified that scalar-shaped
+# `xous::send_message` calls against the PDDB Mount Poller work.
+# This crate generalizes that to the buffered (rkyv-serialized
+# Buffer::lend / Buffer::lend_mut) calls needed by KeyRequest,
+# ReadKey, WriteKey, DeleteKey, DeleteDict, ListKeyV2.
+
+[dependencies]
+# Direct kernel API for `send_message`, `Result`, `CID`, `Message`.
+xous = "0.9.70"
+# `Buffer::into_buf` / `Buffer::lend_mut` for the rkyv'd payloads.
+xous-ipc = "0.10.10"
+# `XousNames::request_connection_blocking` to look up the PDDB
+# server's SID by name.
+xous-names = { package = "xous-api-names", version = "0.9.71" }
+# rkyv 0.8: PDDB's wire structs are `#[derive(rkyv::Archive,
+# rkyv::Serialize, rkyv::Deserialize)]`. Our workspace uses 0.8.16;
+# xous-core/services/pddb uses 0.8.8. Both 0.8.x — wire-compatible.
+rkyv = { version = "0.8.8", default-features = false, features = ["std", "alloc"] }
+# `num-derive` for the Opcode enum's `to_u32()` conversion.
+num-derive = { version = "0.4.2", default-features = false }
+num-traits = { version = "0.2.14", default-features = false }
+# `bitflags`-style register field manipulation for `KeyFlags`.
+bitfield = "0.13.2"
+# Standard I/O traits — we expose `KeyHandle` as a `std::io::Read +
+# std::io::Write` for the streaming-bytes protocol.
+log = "0.4"

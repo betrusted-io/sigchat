@@ -1,0 +1,141 @@
+# cargo-deny config for xous-app-signal (supply-chain gate).
+#
+# CI runs the green subset only: `cargo deny check advisories bans
+# sources` (see .github/workflows/ci.yml). The `licenses` check is
+# NOT yet gated — ~21 xous-core path crates + the betrusted-io `ring`
+# fork carry no SPDX license field (they inherit MIT/Apache-2.0 from
+# xous-core's workspace); gate `licenses` once each is clarified here
+# or declares a license upstream. See the [licenses] section note.
+#
+# Every advisory ignore and git-source allow below is annotated with
+# its reason inline; a NEW advisory or an unrecognized git source
+# still fails the gate. Regenerate the source/advisory lists after any
+# dependency-pin bump.
+
+[graph]
+# Only care about what actually ships to the device plus the host
+# test/build path; the target is the rv32-xous triple.
+all-features = false
+
+[advisories]
+version = 2
+yanked = "deny"
+# Each ignore is a transitive advisory with no same-day first-party
+# fix (all move only when an upstream or fork pin moves).
+# Re-audit when any pin bumps; a NEW advisory still fails the gate.
+ignore = [
+  # quick-xml XML DoS. Runtime copy via phonenumber->libsignal-service
+  # (0.38.4) + build-only via svd2utra (0.28.2). Bump waits on upstream
+  # phonenumber; svd2utra copy never ships.
+  "RUSTSEC-2026-0194",
+  "RUSTSEC-2026-0195",
+  # rustls-webpki cert-path DoS. Bound by rustls =0.22.2, pinned to
+  # match xous-core libs/tls. Moves when that pin moves.
+  "RUSTSEC-2026-0049",
+  # rkyv 0.4.3 advisories — normal (target-gated) dependency of the
+  # betrusted-io ring-xous fork (ring 0.17.7 -> rkyv, and ring ->
+  # xous-ipc -> rkyv), so it IS on the shipped-binary path for the
+  # xous target, not dev-only as previously annotated. Moves only when
+  # the ring-xous pin moves.
+  "RUSTSEC-2021-0054",
+  "RUSTSEC-2026-0001",
+  # Unmaintained/unsound transitives not on a first-party code path:
+  "RUSTSEC-2025-0056", # adler unmaintained
+  "RUSTSEC-2023-0089", # atomic-polyfill unmaintained
+  # (RUSTSEC-2026-0190, anyhow downcast_mut unsoundness, dropped: it
+  # reached the audited graph only as a dev-dependency of the vendored
+  # libsignal-service-rs workspace member; the git-dep fork's dev-deps
+  # are not resolved, so the advisory no longer matches any crate.)
+  # Remaining lower-severity transitives surfaced in the same scan;
+  # review individually when bumping the relevant pin.
+  "RUSTSEC-2024-0336",
+  "RUSTSEC-2024-0384",
+  "RUSTSEC-2025-0134",
+  "RUSTSEC-2025-0141",
+  "RUSTSEC-2026-0098",
+  "RUSTSEC-2026-0099",
+  "RUSTSEC-2026-0104",
+  "RUSTSEC-2026-0173",
+  # New advisories published after the 2026-07-06 scan, all transitives
+  # of the libsignal stack; acknowledged + deferred, they move
+  # when the signalapp/libsignal pin moves:
+  "RUSTSEC-2026-0204", # crossbeam-epoch 0.9.18 fmt::Display null-deref; via rayon<-libsignal, pattern unused
+  "RUSTSEC-2026-0207", # libcrux-sha3 0.0.8 portable SHAKE multi-squeeze bug; ML-KEM/ML-DSA use unaffected
+  "RUSTSEC-2026-0208", # libcrux-sha3 0.0.8 AVX2 SHAKE-256 panic; AVX2-only path, device is riscv32
+  "RUSTSEC-2026-0212", # libcrux-secrets 0.0.5 aarch64 const-time swap/select bug; no aarch64 target here
+]
+
+[licenses]
+version = 2
+# The observed license set of the full dependency tree (dev @ 2a0017c).
+# AGPL-3.0-only is xas itself + libsignal-derived crates (see README
+# dual-license section).
+allow = [
+  "MIT",
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "ISC",
+  "Zlib",
+  "Unicode-3.0",
+  "Unicode-DFS-2016",
+  "CC0-1.0",
+  "MPL-2.0",
+  "AGPL-3.0-only",
+]
+confidence-threshold = 0.9
+# KNOWN-RED until clarified: ~21 crates carry no SPDX license field and
+# fail the check — the xous-core path-dep crates (blitstr2, codec, com,
+# com_rs, content-plugin-api, early_settings, engine25519-as, gam,
+# graphics-server, ime-plugin-api, ime-plugin-shell, keyboard, llio,
+# modals, precursor-hal, spinor, trng, tts-frontend, ux-api) plus the
+# betrusted-io `ring` fork (0.17.7). They inherit MIT/Apache-2.0 from
+# xous-core's workspace but don't declare it per-crate. Two ways to
+# green this, maintainer's call:
+#   (a) add a `[[licenses.clarify]]` block per crate (verbose, needs a
+#       LICENSE file hash from each), or
+#   (b) upstream a one-line `license = "MIT OR Apache-2.0"` to each
+#       xous-core crate's Cargo.toml (fixes it for every downstream too).
+# Until then, run the licenses check as non-blocking (CI:
+# `cargo deny check advisories bans sources` as the hard gate; add
+# `licenses` once clarified). Skeleton:
+# [[licenses.clarify]]
+# crate = "ring"
+# expression = "MIT AND ISC AND OpenSSL"
+# license-files = [{ path = "LICENSE", hash = 0x0 }]
+
+[bans]
+# The tree has known duplicate versions (prost 0.13/0.14, getrandom
+# 0.2/0.3/0.4 — issue #6). Warn, don't block, until #6 is resolved.
+multiple-versions = "warn"
+wildcards = "allow"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+# Every git source currently in the tree. A NEW git source (e.g. an
+# unreviewed fork arriving via a dependency bump) trips this gate —
+# the highest-value check for the "know every source" threat model.
+# The tunnell/* entries are the rev-pinned Signal-stack forks and
+# betrusted-io/xous-core is the getrandom pin — see docs/FORKS.md.
+allow-git = [
+  "https://github.com/async-rs/futures-timer",
+  "https://github.com/betrusted-io/com_rs",
+  "https://github.com/betrusted-io/engine25519-as",
+  "https://github.com/betrusted-io/hashes",
+  "https://github.com/betrusted-io/ring-xous",
+  "https://github.com/betrusted-io/xous-core",
+  "https://github.com/signalapp/libsignal",
+  "https://github.com/signalapp/SparsePostQuantumRatchet",
+  "https://github.com/smol-rs/async-channel",
+  "https://github.com/smol-rs/async-executor",
+  "https://github.com/smol-rs/async-lock",
+  "https://github.com/smol-rs/async-task",
+  "https://github.com/smol-rs/event-listener",
+  "https://github.com/smol-rs/futures-lite",
+  "https://github.com/tunnell/curve25519-dalek",
+  "https://github.com/tunnell/libsignal-service-rs",
+  "https://github.com/tunnell/presage",
+]

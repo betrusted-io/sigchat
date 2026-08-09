@@ -1,0 +1,17 @@
+# Test environment for hosted-mode signal-cli scans.
+# Copy to tests/hosted/test_env (gitignored) and edit. NEVER commit
+# real values — these are real Signal account identifiers.
+
+# The Signal account that signal-cli is linked to as a secondary.
+# In the test, signal-cli plays the "test peer" role: it's the
+# recipient in the send test and the sender in the receive test.
+TEST_PEER_NUMBER="+15550100"
+
+# The Signal account that xas is linked to as a secondary (the
+# "device under test"). signal-cli sends here in the receive test;
+# xas sends from here in the send test.
+TEST_XAS_NUMBER="+15550101"
+
+# Optional: override signal-cli's data dir (defaults to
+# ~/.local/share/signal-cli).
+# SIGNAL_CLI_ROOT="$HOME/.local/share/signal-cli"

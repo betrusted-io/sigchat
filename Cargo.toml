@@ -1,84 +1,176 @@
-[package]
-name = "sigchat"
-version = "0.1.0"
-authors = ["john <john@nhoj.info>"]
-edition = "2018"
-description = "sigchat"
+[workspace]
+resolver = "2"
+members = [
+    "crates/presage-store-pddb",
+    "crates/xous-net-bridge",
+    "crates/xous-pddb-ipc",
+    "crates/xous-signal-worker",
+    "crates/xous-app-signal",
+]
 
-# Dependency versions enforced by Cargo.lock.
-[dependencies]
-log = "0.4.14"
-num-derive = { version = "0.3.3", default-features = false}
-num-traits = { version = "0.2.14", default-features = false}
-xous = "0.9.56"
-xous-ipc = "0.9.56"
-log-server = { package = "xous-api-log", version = "0.1.48" }
-ticktimer-server = { package = "xous-api-ticktimer", version = "0.9.48" }
-xous-names = { package = "xous-api-names", version = "0.9.50" }
-gam = { path = "../xous-core/services/gam" }
-graphics-server = { path = "../xous-core/services/graphics-server" }
-trng = { path = "../xous-core/services/trng"}
-locales = { path = "../xous-core/locales"}
-ime-plugin-api = { path = "../xous-core/services/ime-plugin-api"}
-ime-plugin-shell = { path = "../xous-core/services/ime-plugin-shell"}
-content-plugin-api = { path = "../xous-core/services/content-plugin-api"} # all content canvas providers must provide this API
-codec = { path = "../xous-core/services/codec"}
-com = { path = "../xous-core/services/com"}
-com_rs = { git = "https://github.com/betrusted-io/com_rs", rev = "891bdd3ca8e41f81510d112483e178aea3e3a921" }
-llio = { path = "../xous-core/services/llio"}
-net = { path = "../xous-core/services/net" }
-pddb = { path = "../xous-core/services/pddb" }
-# new dependencies for sigcli
-chat = { path = "../xous-core/libs/chat" }
-modals = { path = "../xous-core/services/modals" }
-percent-encoding = "2.2"
-rkyv = {version = "0.4.3", default-features = false, features = ["const_generics"]}
-serde = { version = "1.0", features = [ "derive" ] }
-tls = { path = "../xous-core/libs/tls" }
-tungstenite = "0.21.0"
-url = "2.2.2"
-ring = {version = "=0.17.8"} #must be pinned since we patch in a version
-# must be manually specified as they have our pinned version of ring as a transitive dep.
-ureq = { version = "=2.9.4", features = ["json"] }
-rustls = { version = "=0.22.2"} 
-rustls-webpki = { version = "=0.102.1"}
-sct = { version = "=0.7.1" }
+[workspace.package]
+version = "0.4.0"
+edition = "2024"
+rust-version = "1.85"
+license = "AGPL-3.0-only OR Apache-2.0"
+authors = ["tunnell"]
+publish = false
 
-[features]
-default = []
+# Smol-rs async primitives, pinned to specific upstream revs.
+# Replaces Tokio. ~21 kLoC audit surface vs. Tokio's >100 kLoC.
+[workspace.dependencies]
+async-task = { git = "https://github.com/smol-rs/async-task", rev = "f98b30b" }
+async-executor = { git = "https://github.com/smol-rs/async-executor", rev = "543403e" }
+async-channel = { git = "https://github.com/smol-rs/async-channel", rev = "35a63c4" }
+async-lock = { git = "https://github.com/smol-rs/async-lock", rev = "29f0ff9" }
+event-listener = { git = "https://github.com/smol-rs/event-listener", rev = "2e9db21" }
+futures-lite = { git = "https://github.com/smol-rs/futures-lite", rev = "3dc587f" }
+futures-timer = { git = "https://github.com/async-rs/futures-timer", rev = "07dbe53" }
 
-# prefer hardware-accelerated versions of services
+# Mirrors xous-core's [profile.release] settings:
+#   https://github.com/betrusted-io/xous-core/blob/main/Cargo.toml#L154-L161
+# debug = true keeps DWARF in the on-disk binary for hardware crash analysis.
+# strip = false preserves symbol info for the same reason.
+# For binary-size measurements, build with --profile=release-small (defined below).
+[profile.release]
+codegen-units = 1
+debug = true
+strip = false
+lto = "fat"
+incremental = true
+opt-level = "s"
+# panic = "abort"  # uncomment to reduce file size further at the cost of panic output
+
+# Size-measurement profile for binary size measurements.
+# Use this when running `cargo bloat --crates -p xous-signal-app --profile=release-small`
+# to get an accurate picture of on-disk size without DWARF debug info.
+[profile.release-small]
+inherits = "release"
+debug = false
+strip = "symbols"
+
+# Mirrors xous-core's [patch.crates-io]:
+#   https://github.com/betrusted-io/xous-core/blob/main/Cargo.toml#L164-L196
+#
+# Only the git-based patches are mirrored here. xous-core's path-based patches
+# (`aes` -> services/aes, `getrandom` -> imports/getrandom) reference paths
+# that only exist inside the xous-core tree; getrandom is patched below via
+# the repos/xous-core sibling path. The durable fix is a git-rev pin on
+# betrusted-io/xous-core (the pattern betrusted-io/sigchat and
+# dabao-base-app use). Merging xas into xous-core is not on the table:
+# the maintainer moved chat apps out of tree (betrusted-io/sigchat
+# precedent, xous-core commit d8542dab7), so xas stays out-of-tree.
+#
+# We do NOT mirror xous-core's curve25519-dalek patch. It conflicts with
+# libsignal's `signalapp/curve25519-dalek` pin.
+# Resolution is being investigated separately.
 [patch.crates-io]
 sha2 = { git = "https://github.com/betrusted-io/hashes.git", branch = "sha2-v0.10.8-xous" }
-sha2_legacy = { git = "https://github.com/RustCrypto/hashes.git", tag = "sha2-v0.9.9", package = "sha2" }
 
-[patch.crates-io.aes]
-path = "../xous-core/services/aes"
+# Smol-rs primitives also patched here so transitive uses (e.g. `futures-lite`
+# pulled by `async-executor` from crates.io) converge on our pinned git versions
+# rather than producing duplicate copies. Without these, `cargo tree -d` flags
+# multiple copies of the same crate at the same version but different sources.
+async-task = { git = "https://github.com/smol-rs/async-task", rev = "f98b30b" }
+async-executor = { git = "https://github.com/smol-rs/async-executor", rev = "543403e" }
+async-channel = { git = "https://github.com/smol-rs/async-channel", rev = "35a63c4" }
+async-lock = { git = "https://github.com/smol-rs/async-lock", rev = "29f0ff9" }
+event-listener = { git = "https://github.com/smol-rs/event-listener", rev = "2e9db21" }
+futures-lite = { git = "https://github.com/smol-rs/futures-lite", rev = "3dc587f" }
+futures-timer = { git = "https://github.com/async-rs/futures-timer", rev = "07dbe53" }
 
+[patch.crates-io.ring]
+git = "https://github.com/betrusted-io/ring-xous"
+rev = "5f86cb10bebd521a45fb3abb06995200aeda2948"
+
+# --- Fork model -------------------------------------------------------
+#
+# The Signal-stack forks (formerly directory-vendored under vendor/)
+# live as GitHub forks, each a rebase-managed branch = upstream pin +
+# a small stack of reviewable commits. xas consumes them ONLY via the
+# rev-pinned [patch] entries below; member crates keep declaring the
+# canonical upstream URLs. Full pin matrix, compare URLs, and the
+# maintenance cadence are in docs/FORKS.md.
+#
+#   crate                repo                                 branch            rev
+#   presage              github.com/tunnell/presage           xous-600c4ed      7b63a45
+#   libsignal-service    github.com/tunnell/libsignal-service-rs  xous-782c0d6  96bcdf8
+#   curve25519-dalek(+derive)  github.com/tunnell/curve25519-dalek  xous-signal-4.1.3  0cac8fc
+#   getrandom            github.com/betrusted-io/xous-core (imports/getrandom)  n/a  2005a80
+#
+# The presage and libsignal-service revs are COUPLED (the forked
+# `ws()` returns `(ws, task)`); bump them as a pair — see docs/FORKS.md.
+
+# curve25519-dalek: tunnell fork of betrusted-io/curve25519-dalek
+# (branch xous-signal-4.1.3 = betrusted-io main 16e087ab9 + 4.1.2→4.1.3
+# version bump + lizard module port). Carries the driver for Precursor's
+# curve25519 IP-core HW accelerator (src/backend/serial/u32e/).
+#
+# **Precursor-only.** The IP core is on Precursor only (per bunnie); the
+# Bao1x tape-out has a different PKE engine and would need a separate
+# backend. We're targeting Precursor for now; Bao1x support is a future
+# stage swap.
+#
+# The u32e backend is selected at compile time by setting
+# `--cfg curve25519_dalek_backend="u32e_backend"`. We do that
+# automatically for the rv32-xous target via .cargo/config.toml; on
+# hosted Linux the same code falls back to the portable Rust backend, so
+# tests/CI run unaffected.
+#
+# Fork delta over betrusted-io main:
+#   - bump version 4.1.2 → 4.1.3 in curve25519-dalek/Cargo.toml so the
+#     [patch.crates-io] redirect matches what libsignal's zkgroup
+#     declares (curve25519-dalek = "4.1.3")
+#   - port the src/lizard/ module from signalapp/curve25519-dalek
+#     (signal-curve25519-4.1.3 tag) — adds 4 RistrettoPoint methods
+#     used by zkgroup. Additive; needs the crate's `digest` feature,
+#     which zkgroup/libsignal already enable.
 [patch.crates-io.curve25519-dalek]
-git="https://github.com/betrusted-io/curve25519-dalek.git"
-branch="main"
-#path = "../curve25519-dalek"  # when doing local dev work
-# feature overrides are specified at the crate level
+git = "https://github.com/tunnell/curve25519-dalek"
+rev = "0cac8fc8239e73ea740ff720c7f93b486618b77d"
 
-#[patch."https://github.com/betrusted-io/xous-engine-25519.git"]
-#engine-25519 = {path = "../xous-core/services/engine-25519"}
+[patch.crates-io.curve25519-dalek-derive]
+git = "https://github.com/tunnell/curve25519-dalek"
+rev = "0cac8fc8239e73ea740ff720c7f93b486618b77d"
 
-[patch.crates-io.usb-device]
-git="https://github.com/betrusted-io/usb-device.git"
-branch="main"
-# local dev shortcuts
-#path = "../usb-device"
+# libsignal's Cargo.toml also imports curve25519-dalek directly via the
+# git URL `https://github.com/signalapp/curve25519-dalek` (aliased as
+# `curve25519-dalek-signal`). [patch.crates-io] doesn't redirect git
+# sources, so we additionally patch the git URL here. Both pointers
+# MUST stay on the same fork rev — if they diverge, two RistrettoPoint
+# definitions reappear and the build fails with duplicate-types errors.
+[patch."https://github.com/signalapp/curve25519-dalek"]
+curve25519-dalek = { git = "https://github.com/tunnell/curve25519-dalek", rev = "0cac8fc8239e73ea740ff720c7f93b486618b77d" }
+curve25519-dalek-derive = { git = "https://github.com/tunnell/curve25519-dalek", rev = "0cac8fc8239e73ea740ff720c7f93b486618b77d" }
 
+# libsignal-service: tunnell fork of whisperfish/libsignal-service-rs
+# (branch xous-782c0d6 = upstream 782c0d6 + 4 commits: transport trait,
+# ws()->(ws, task) + keepalive tolerance, last_close_code accessor,
+# manifest). This is where the transport patches live. NOTE: the fork
+# keeps upstream's `default = ["cdsi"]` (CDSI pulls boring-sys/BoringSSL,
+# no rv32 target) — every consumer must set `default-features = false`
+# (xous-net-bridge and the presage fork both do).
+[patch."https://github.com/whisperfish/libsignal-service-rs"]
+libsignal-service = { git = "https://github.com/tunnell/libsignal-service-rs", rev = "96bcdf8eb69bd25d3f9770295535222540b6f491" }
+
+# presage: tunnell fork of whisperfish/presage (branch xous-600c4ed =
+# upstream 600c4ed + 3 commits). This is where the tokio-removal
+# patches live (presage::runtime LocalExecutor module, spawn_detached,
+# ws-task adaptation, PNI cipher fix).
+[patch."https://github.com/whisperfish/presage"]
+presage = { git = "https://github.com/tunnell/presage", rev = "7b63a451f4089011830302538c854d6860f74ecc" }
+
+# Cross-compiling rustls/ring for rv32 pulls in `getrandom`, whose
+# upstream crate doesn't recognize Xous as a target. xous-core has a
+# forked `getrandom` at `imports/getrandom` that calls Xous's TRNG.
+# Pinned as a git dep on betrusted-io/xous-core at a fixed rev (the
+# pattern betrusted-io/sigchat and dabao-base-app use) — replaces the
+# old layout-brittle `../repos/xous-core` sibling-path patch. See the
+# getrandom 0.3/0.4 audit roadmap item.
 [patch.crates-io.getrandom]
-path = "../xous-core/imports/getrandom"
+git = "https://github.com/betrusted-io/xous-core"
+rev = "2005a801c917753175d3826446ce1352c119e020"
 
-#[patch.crates-io.ring]
-# path = "../ring-xous"  # for local dev only
-#git="https://github.com/betrusted-io/ring-xous"
-#rev="4296c2e7904898766cf7d8d589759a129794783b" # use the commitref because we're still updating the branch
-
-#[patch.crates-io.utralib]
-#path = "../xous-core/utralib"
-#[patch.crates-io.svd2utra]
-#path = "../xous-core/svd2utra"
+# TODO: wire up the `aes` patch (also path-based,
+# `xous-core/services/aes`) the same way once `aes` shows up
+# transitively. Not blocking yet because no current dep pulls `aes`.

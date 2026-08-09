@@ -1,0 +1,42 @@
+# No `cargo xtask` alias — the local xtask crate was deleted in
+# favor of explicit `cargo build` invocations in
+# tests/precursor/build-and-bundle.sh and
+# tests/renode/run-renode-tests.sh. The `cargo xtask`
+# subcommands you'll see in BUILDING.md and the precursor scripts
+# all refer to **xous-core's** xtask, invoked from the xous-core
+# directory (not this workspace).
+
+# Per-target Cargo flags for the rv32-xous build.
+#
+# `getrandom_backend="custom"` tells the `getrandom` 0.3 crate
+# to expect a `__getrandom_v03_custom` extern provided by the
+# user's code. We supply it from `crates/xous-app-signal/src/main.rs`,
+# backed by xous-core's TRNG service. Without this rustflag, rv32
+# builds fail to find a getrandom backend and won't link.
+#
+# Long-term resolution: either a 0.3-line xous fork upstreamed
+# into xous-core (so it ships with the toolchain), or a native
+# Xous backend embedded in upstream getrandom alongside the
+# `linux_android`/`apple` ones. Tracked as a roadmap item.
+[target.riscv32imac-unknown-xous-elf]
+rustflags = [
+    "--cfg", "getrandom_backend=\"custom\"",
+
+    # The rev-pinned curve25519-dalek fork (betrusted-io lineage;
+    # docs/FORKS.md) includes a `u32e_backend` that uses
+    # Precursor's Curve25519 IP-core accelerator. Currently
+    # DISABLED because zkgroup uses the fork's "lizard" port (in
+    # `RistrettoPoint::from_uniform_bytes_single_elligator`) that
+    # mixes the IP-core engine's `Engine25519` field type freely
+    # with the portable `FieldElement2625`. The two aren't
+    # interchangeable, so the build only type-checks with the
+    # portable backend.
+    #
+    # Re-enabling cleanly requires either:
+    #   (a) Engine25519 ↔ FieldElement2625 conversions in the
+    #       fork's curve25519-dalek lizard module, or
+    #   (b) an upstream libsignal change to make zkgroup's lizard
+    #       use avoid the type mix.
+    # Both out of scope for now; uncomment once one ships.
+    # "--cfg", "curve25519_dalek_backend=\"u32e_backend\"",
+]

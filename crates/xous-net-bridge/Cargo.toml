@@ -1,0 +1,73 @@
+[package]
+name = "xous-net-bridge"
+description = "Sync TLS + WebSocket transport for the Signal client, bridged to the async executor via channels."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+# rustls 0.22.2 — the version xous-core integrates at libs/tls
+# (https://github.com/betrusted-io/xous-core/blob/main/libs/tls/Cargo.toml).
+# Pin precisely so transitive `ring` resolves to the version covered by
+# xous-core's [patch.crates-io].ring fork.
+rustls = "=0.22.2"
+rustls-pemfile = "2"
+webpki-roots = "1.0"
+
+# tungstenite is upstream snapview/tungstenite-rs, sync. We deliberately
+# do NOT use signalapp/tungstenite-rs — that fork only adds
+# permessage-deflate, which Signal's WS doesn't require. Minimal
+# features: handshake only, no built-in TLS — we wrap the local
+# `tls_connect` externally via `tungstenite::client(request,
+# our_tls_stream)`. Keeps tungstenite from pulling its own
+# (potentially-newer) rustls version that would conflict with the
+# pinned `=0.22.2`.
+tungstenite = { version = "0.21", default-features = false, features = ["handshake"] }
+
+# `HttpClient` trait lives in libsignal-service-rs; the impl is in this
+# crate (libsignal-service doesn't depend on xous-net-bridge, so no
+# circular-dep problem). Declares the canonical upstream URL; the
+# workspace [patch."https://github.com/whisperfish/libsignal-service-rs"]
+# redirects it to the rev-pinned tunnell fork (docs/FORKS.md), unifying
+# it with presage's dep on the same URL. `default-features = false` is
+# REQUIRED: the fork keeps upstream's `default = ["cdsi"]`, and CDSI
+# pulls boring-sys (BoringSSL), which has no rv32-xous target.
+libsignal-service = { git = "https://github.com/whisperfish/libsignal-service-rs", rev = "782c0d6", default-features = false }
+
+# Sync→async bridging for the `HttpClient` impl. `HttpClient::execute`
+# is async (returns a Future) but our HTTP/1.1 client is sync (writes/
+# reads on a TcpStream). `async-channel` bridges them: the async side
+# awaits a oneshot, a worker thread runs the sync HTTP, and posts the
+# response back.
+async-channel = { workspace = true }
+async-trait = "0.1"
+http = "1"
+
+# Serde for JSON body decoding in the HttpClient::execute return path.
+serde = "1"
+serde_json = "1"
+
+# HTTP client encoding helpers.
+base64 = "0.22"
+tracing = "0.1"
+url = "2"
+
+[[example]]
+name = "https_get"
+path = "examples/https_get.rs"
+
+[[example]]
+name = "signal_ws_keepalive"
+path = "examples/signal_ws_keepalive.rs"
+
+[dev-dependencies]
+# rcgen is used only by tests/tls_resumption.rs to mint a self-signed
+# cert for the in-process rustls server. 0.13.x emits rustls-pki-types
+# 1.x which matches the version pulled in by rustls 0.22.2.
+rcgen = "0.13"
+# block_on for unit tests that call the async connect_websocket
+# surface (src/ws_pump.rs teardown test). Same pinned smol-rs rev the
+# workspace already uses everywhere else.
+futures-lite = { workspace = true }

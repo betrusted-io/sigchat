@@ -1,0 +1,238 @@
+[package]
+name = "xous-app-signal"
+description = "Xous app: Signal client built on the Whisperfish stack (presage + libsignal-service-rs + libsignal)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[[bin]]
+# Short pronouncable name "xas" for the on-device binary.
+name = "xas"
+path = "src/main.rs"
+
+[features]
+# When enabled, after the worker spawns, main() fires a TCP connect
+# against a known endpoint and logs the result. Used to figure out
+# which of {Renode network emulation, the Xous net service, our
+# bridge} actually carries traffic. Default off so prod / smoke
+# builds aren't affected.
+probe-flow = []
+
+# When enabled, after the worker spawns, main() pings xous-core's
+# PDDB Mount Poller via raw `xous` IPC and logs the mount state
+# (`true` / `false`). Verifies the IPC protocol replication path
+# (which is what a hand-rolled PDDB client would use) before
+# committing to the full KvBackend implementation.
+probe-pddb = []
+
+# Full PDDB-backed KvBackend.
+# `pddb-real` swaps `PddbStore::with_mock_backend()` for
+# `PddbStore::with_pddb_backend()` in main.rs (the construction
+# point is feature-gated). Activating this on hosted is a no-op;
+# the cfg in `presage-store-pddb/src/backend_pddb.rs` is gated to
+# `target_os = "xous"`.
+#
+# The former `probe-pddb-real` and `probe-bulk-ab` companion features
+# (auto-firing diagnostic probes after worker spawn) were removed on
+# 2026-05-14 — they raced with xous-names server registration during
+# boot and crashed Precursor PVT2 hardware with a `ServerNotFound`
+# cascade. The bulk-write A/B benchmark now lives in shellchat as
+# `pddb bulk_probe` (user-invoked after PIN entry and PDDB mount);
+# the load-bearing NOTE in src/main.rs explains why no probe may
+# auto-fire after worker spawn.
+pddb-real = ["presage-store-pddb/pddb-backend"]
+
+# In-image TCP echo probe: after the worker spawns, main() starts a
+# `std::net::TcpListener` echo server on 127.0.0.1:7777 in one
+# thread and drives four client cases against it (three patterned
+# messages + one streamed 8 KiB payload), verifying byte-exact
+# echoes through the REAL on-target stack: libstd -> services/net ->
+# smoltcp loopback. Logs the `XAS-ECHO:` sentinel grammar asserted
+# by `xas-echo.robot`. The bundled kernel image must have its net
+# service built with `net/renode-minimal` (xous-core branch
+# `xas-integration-net`): smoltcp only gains its 127.0.0.1/8
+# interface address when an IPv4 config is applied, and on the
+# closed renode COM/WF200 setup no DHCP bind ever fires — the
+# feature seeds a static config at boot through the same handler.
+probe-echo = []
+
+# Probe that exercises `BufferingBackend` + `BatchGuard` against a
+# `MockBackend` (no real PDDB required). Drives a synthetic
+# "send-shaped" sequence — multiple writes through Store traits
+# wrapped in a batch scope — and logs UART lines for the
+# `xas-send-batch.robot` Renode test. Validates the abstraction
+# compiles for rv32 and works under the real xous async runtime.
+# Safe to enable on hardware: does NOT touch real PDDB, only the
+# in-memory MockBackend.
+probe-send-batch = []
+
+# Log the full sgnl:// provisioning URL during linking — both the
+# worker emit site and the UI re-log (tests/hosted/test_link_qr.sh
+# greps both lines). The URL is the link credential for its ~60 s
+# window and UART access is unauthenticated, so default builds log
+# only its length.
+link-uri-uart = ["xous-signal-worker/link-uri-uart"]
+
+# Full identifiers (ACI UUIDs, e164 numbers, contact labels) in log
+# lines for ops triage; default builds emit the redacted last-4 form
+# from presage-store-pddb's `log_id`.
+verbose-pii = ["xous-signal-worker/verbose-pii", "presage-store-pddb/verbose-pii"]
+
+# Restore info-level records from presage / libsignal* / zkgroup, which
+# default builds drop (see src/log_filter.rs) because they carry account
+# UUIDs, phone numbers and storage auth credentials. They are also the
+# only view of websocket and envelope handling — a duplicate-connection
+# bug was found by reading their frame counters — so turn this on when
+# debugging that layer. Warnings and errors are never filtered either
+# way.
+verbose-upstream-logs = []
+
+# Build profiles for the two Xous environments.
+# Mirror the older xous-signal-client's pattern (Cargo.toml had its
+# own precursor/hosted features cascading to each Xous service).
+# On a Xous-emulation hosted build we activate `hosted`; for real
+# rv32 deploy we activate `precursor`. The xtask `app-image` flow
+# wants `precursor`; `cargo xtask run` (hosted emulation) wants
+# `hosted`.
+hosted = [
+    "blitstr2/hosted",
+    "ux-api/hosted",
+    "gam/hosted",
+    "modals/hosted",
+    "graphics-server/hosted",
+]
+precursor = [
+    "blitstr2/precursor",
+    "ux-api/precursor",
+    "gam/precursor",
+    "modals/precursor",
+    "graphics-server/precursor",
+    # utralib needs both `precursor` (for the SVD bundle) AND a
+    # specific gitrev feature to pick which SoC variant. xtask's
+    # PRECURSOR_SOC_VERSION default is `pvt`. We're a direct dep
+    # on utralib (declared just below) so we can fan out both.
+    "utralib/precursor",
+    "utralib/precursor-pvt",
+]
+
+[dependencies]
+# Spawn the manager worker thread + drive Hello/GetWhoami
+# round-trips. The presage-store-pddb dep is direct (not just
+# transitive through the worker) because the binary owns the store
+# and hands a clone to the worker.
+xous-signal-worker = { path = "../xous-signal-worker" }
+presage-store-pddb = { path = "../presage-store-pddb" }
+async-channel = { workspace = true }
+
+# (The former stdin-UI fallback at src/stdin_ui/ was removed:
+# xas always runs inside a Xous environment now, and a failed
+# gam_app::run() is a hard startup error rather than a fallback
+# trigger.)
+
+# log facade. Boot events log::info! through here so the
+# Renode UART tester can assert on them. Hosted binds env_logger
+# below; rv32-xous binds xous-api-log via the integration step.
+log = "0.4"
+
+# GAM client for proper LCD rendering inside the Xous environment
+# (hosted emulation OR rv32 hardware). Modeled on
+# apps/hello/Cargo.toml. Verified via `cargo tree -p gam` that
+# gam does NOT depend on services/aes, root-keys, or pddb — the
+# workspace-merge blocker doesn't apply here. The cascade
+# is graphics-server + blitstr2 + ux-api + com + ime-plugin-* +
+# locales + tts-frontend + spinor — all path-deps inside xous-core,
+# bounded surface.
+#
+# Unconditional (not target-cfg-gated): gam is needed for both the
+# hosted-Xous emulation (target=linux, running inside cargo xtask
+# run) AND rv32 hardware. There is no standalone/no-Xous mode:
+# if gam_app::run() returns Err, main() exits with the error.
+gam = { path = "../../../repos/xous-core/services/gam" }
+# Direct dep on graphics-server so we can fan out the
+# `precursor` feature → `utralib/precursor` (otherwise
+# gam → graphics-server's transitive utralib activation
+# bypasses our feature unification).
+graphics-server = { path = "../../../repos/xous-core/services/graphics-server", default-features = false }
+# utralib direct dep so xous-app-signal can target its
+# `precursor` + `precursor-pvt` features through our `precursor`
+# cascade (above). Default features off — without `precursor`
+# the SVD bundle isn't generated and the build script panics.
+utralib = { version = "0.1.27", default-features = false }
+# Per-board glyph + screen constants are gated on `hosted` /
+# `precursor` features. We forward via the workspace-level
+# `hosted` / `precursor` features (above) so the build invocation
+# picks the right one. Default features in these path-deps stay
+# off so we don't accidentally pull both.
+ux-api = { path = "../../../repos/xous-core/libs/ux-api", default-features = false }
+blitstr2 = { path = "../../../repos/xous-core/libs/blitstr2", default-features = false }
+num-derive = { version = "0.4.2", default-features = false }
+num-traits = { version = "0.2.14", default-features = false }
+# xous + xous-names also needed unconditionally (gam_app uses
+# them for IPC). Previously target-cfg-gated to rv32 only;
+# moved to unconditional for the hosted-Xous emulation path.
+xous = "0.9.70"
+xous-names = { package = "xous-api-names", version = "0.9.71" }
+# com client for the no-internet preflight on Home/Linking entry.
+# Reads wlan_status() to decide whether to start a network operation
+# or surface a "connect Wi-Fi from shellchat" screen instead. Same
+# transitive dep set as gam — already in the build.
+com = { path = "../../../repos/xous-core/services/com" }
+llio = { path = "../../../repos/xous-core/services/llio" }
+com_rs = { git = "https://github.com/betrusted-io/com_rs", rev = "891bdd3ca8e41f81510d112483e178aea3e3a921" }
+
+# Menu actions: modals client for the device-name TextEntry
+# prompt + QR-code Notification on link. Uses the upstream
+# gam-aware client directly.
+modals = { path = "../../../repos/xous-core/services/modals" }
+locales = { path = "../../../repos/xous-core/locales" }
+
+# uuid is already in the dep graph transitively (via libsignal); add it
+# as a direct dep so the dialogue.rs data model can use the same Uuid
+# type as xous-signal-worker without going through a re-export.
+# `v5` (name-based SHA-1, pure-Rust sha1_smol) derives the group
+# pseudo-thread uuid one-way from the GV2 master key — the master key
+# is secret material, so the thread key must not embed its raw bytes.
+uuid = { version = "1", default-features = false, features = ["std", "v5"] }
+
+[target.'cfg(not(target_os = "xous"))'.dependencies]
+# env_logger initializes from RUST_LOG; defaults to info-level.
+# Pulled only for hosted builds to keep the rv32 dep graph clean.
+env_logger = { version = "0.11", default-features = false }
+
+# getrandom 0.3 custom backend. The cfg `getrandom_backend="custom"`
+# set in `.cargo/config.toml` for rv32-xous makes getrandom expect
+# an extern `__getrandom_v03_custom` function provided by the user
+# binary; without it the rv32 release build won't link. We import
+# the crate here just for `getrandom::Error` (the extern's return
+# type), gated to the rv32-xous target.
+[target.'cfg(target_os = "xous")'.dependencies]
+getrandom = { version = "0.3", default-features = false }
+
+# Route `log::info!` through `xous-api-log`. The
+# `xous-log` server (in the baseline Xous image at boot) forwards
+# log records to the hardware UART, which is what the Renode Robot
+# test asserts on. Pinned to the version other apps in xous-core
+# use, so we resolve to the same crates.io release the published
+# image links against.
+xous-api-log = "0.1.69"
+
+# Trng client lives in `services/trng`
+# (path-dep'd; the crate exposes `Trng::new(&XousNames)` and
+# `Trng::fill_buf(&mut [u32])` which we call from
+# `__getrandom_v03_custom`). xous-api-names provides the
+# `XousNames` constructor. The two flatipc deps come transitively
+# from trng — its IPC buffers are flatipc-derived. xous-api-susres
+# is also transitive via trng's Cargo.toml; carrying it explicitly
+# keeps the path-dep declaration self-contained.
+trng = { path = "../../../repos/xous-core/services/trng" }
+# (xous-names + xous moved to unconditional deps above so gam_app
+# can use them on hosted-Xous emulation as well.)
+xous-api-susres = { path = "../../../repos/xous-core/api/xous-api-susres" }
+flatipc = { path = "../../../repos/xous-core/libs/flatipc" }
+flatipc-derive = { path = "../../../repos/xous-core/libs/flatipc-derive" }
+
+# (utralib was added in a Phase C-3 first-attempt and removed when
+# u32e_backend turned out to be incompatible with the lizard port in
+# the curve25519-dalek fork. Re-add when u32e is unblocked.)

@@ -1,0 +1,204 @@
+# CI for xous-app-signal, mirroring betrusted-io/xous-core's gates
+# (build + rustfmt + whitespace) adapted to this repo's layout.
+#
+# Every job that runs cargo needs the BUILDING.md §1 sibling layout:
+# xous-app-signal/ and xous-core/ side by side plus a
+# repos/xous-core symlink, because the Cargo manifests path-dep into
+# ../repos/xous-core/... and [patch.crates-io.getrandom] resolves
+# through the same path at manifest-load time.
+name: ci
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  hosted-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out xas
+        uses: actions/checkout@v4
+        with:
+          path: xous-app-signal
+
+      - name: Clone the pinned xous-core sibling (BUILDING.md §1)
+        # The apps.rs bootstrap is BUILDING.md §2.1: the file is
+        # xtask-generated and gitignored, but standalone cargo builds
+        # link gam::APP_NAME_XAS and need it on disk before any xtask
+        # has run. (The rustfmt job skips this — cargo metadata loads
+        # manifests only and never compiles gam.)
+        run: |
+          git clone --depth 1 -b xas-v0.2 https://github.com/tunnell/xous-core.git
+          mkdir -p repos
+          ln -s ../xous-core repos/xous-core
+          cat > xous-core/services/gam/src/apps.rs <<'EOF'
+          #![cfg_attr(rustfmt, rustfmt_skip)]
+          // CI stand-in for the xtask-generated apps.rs (BUILDING.md §2.1).
+          pub const APP_NAME_XAS: &'static str = "Signal";
+          pub const APP_MENU_0_XAS: &'static str = "Signal Submenu 0";
+
+          pub const EXPECTED_APP_CONTEXTS: &[&'static str] = &[
+              APP_NAME_XAS,
+              APP_MENU_0_XAS,
+          ];
+          EOF
+
+      - name: Install system build deps
+        # protobuf-compiler: the spqr (SparsePostQuantumRatchet) build
+        # script validates its protobufs with protoc at compile time.
+        run: sudo apt-get update && sudo apt-get install -y build-essential pkg-config libssl-dev protobuf-compiler
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: xous-app-signal
+
+      - name: Hosted unit tests (baseline 39/39)
+        working-directory: xous-app-signal
+        run: cargo test --features hosted -p xous-app-signal --bins
+
+      - name: xous-net-bridge suite
+        working-directory: xous-app-signal
+        run: cargo test -p xous-net-bridge
+
+      - name: presage-store-pddb suite (baseline 44/44)
+        working-directory: xous-app-signal
+        run: cargo test -p presage-store-pddb
+
+  rv32-build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out xas
+        uses: actions/checkout@v4
+        with:
+          path: xous-app-signal
+
+      - name: Clone the pinned xous-core sibling (BUILDING.md §1)
+        # The apps.rs bootstrap is BUILDING.md §2.1: the file is
+        # xtask-generated and gitignored, but standalone cargo builds
+        # link gam::APP_NAME_XAS and need it on disk before any xtask
+        # has run. (The rustfmt job skips this — cargo metadata loads
+        # manifests only and never compiles gam.)
+        run: |
+          git clone --depth 1 -b xas-v0.2 https://github.com/tunnell/xous-core.git
+          mkdir -p repos
+          ln -s ../xous-core repos/xous-core
+          cat > xous-core/services/gam/src/apps.rs <<'EOF'
+          #![cfg_attr(rustfmt, rustfmt_skip)]
+          // CI stand-in for the xtask-generated apps.rs (BUILDING.md §2.1).
+          pub const APP_NAME_XAS: &'static str = "Signal";
+          pub const APP_MENU_0_XAS: &'static str = "Signal Submenu 0";
+
+          pub const EXPECTED_APP_CONTEXTS: &[&'static str] = &[
+              APP_NAME_XAS,
+              APP_MENU_0_XAS,
+          ];
+          EOF
+
+      - name: Install system build deps
+        # protobuf-compiler: the spqr (SparsePostQuantumRatchet) build
+        # script validates its protobufs with protoc at compile time.
+        run: sudo apt-get update && sudo apt-get install -y build-essential pkg-config libssl-dev protobuf-compiler
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            xous-app-signal
+            xous-core
+
+      - name: Install the Xous rv32 sysroot (cargo xtask install-toolkit)
+        working-directory: xous-core
+        run: cargo xtask install-toolkit
+
+      - name: Cross-build for riscv32imac-unknown-xous-elf
+        working-directory: xous-app-signal
+        # Debug profile: catches target compile + link errors (incl.
+        # the __getrandom_v03_custom extern) without paying the
+        # fat-LTO release cost on a 2-core runner. Release-profile
+        # verification stays part of the hardware-bundle flow
+        # (tests/precursor/build-and-bundle.sh).
+        run: cargo build --target riscv32imac-unknown-xous-elf -p xous-app-signal --features pddb-real,precursor
+
+  rustfmt:
+    runs-on: ubuntu-latest
+    # Hard gate since the repo-wide `cargo +nightly fmt` commit (#48).
+    steps:
+      - name: Check out xas
+        uses: actions/checkout@v4
+        with:
+          path: xous-app-signal
+
+      - name: Clone the pinned xous-core sibling (BUILDING.md §1)
+        # `cargo fmt -p` runs `cargo metadata`, which loads the full
+        # workspace manifest — including the ../repos/xous-core
+        # path-deps and the getrandom [patch]. Without the sibling the
+        # job fails before rustfmt ever runs (masked while this was a
+        # soft gate).
+        run: |
+          git clone --depth 1 -b xas-v0.2 https://github.com/tunnell/xous-core.git
+          mkdir -p repos
+          ln -s ../xous-core repos/xous-core
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: xous-app-signal
+
+      - name: Install nightly rustfmt
+        run: |
+          rustup toolchain install nightly --profile minimal
+          rustup component add rustfmt --toolchain nightly
+
+      - name: cargo +nightly fmt --check (first-party crates only)
+        # Scoped with -p to the five first-party crates. The former
+        # vendored trees are gone (replaced by rev-pinned fork git
+        # deps — docs/FORKS.md); the explicit -p list stays so the
+        # gate's scope is self-documenting and stable.
+        working-directory: xous-app-signal
+        run: >
+          cargo +nightly fmt --check
+          -p xous-app-signal -p xous-signal-worker -p xous-net-bridge
+          -p xous-pddb-ipc -p presage-store-pddb
+
+  trailing-whitespace:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for trailing whitespace in first-party sources
+        run: |
+          set -e
+          FOUND=$(grep -rn --include='*.rs' --include='*.toml' --include='*.md' ' $' \
+            crates/ docs/ tests/ *.md *.toml 2>/dev/null || true)
+          if [ -n "$FOUND" ]; then
+            echo "$FOUND"
+            echo "::error::trailing whitespace found"
+            exit 1
+          fi
+
+  supply-chain:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out xas
+        uses: actions/checkout@v4
+        with:
+          path: xous-app-signal
+
+      - name: Clone the pinned xous-core sibling (BUILDING.md §1)
+        # cargo-deny resolves the full dependency graph, which includes
+        # the ../repos/xous-core path-deps and the getrandom [patch].
+        run: |
+          git clone --depth 1 -b xas-v0.2 https://github.com/tunnell/xous-core.git
+          mkdir -p repos
+          ln -s ../xous-core repos/xous-core
+
+      - name: Install cargo-deny
+        run: cargo install cargo-deny --locked
+
+      # Green subset only. `licenses` is intentionally omitted until the
+      # xous-core path crates carry SPDX license fields — see deny.toml.
+      - name: cargo deny check
+        working-directory: xous-app-signal
+        run: cargo deny check advisories bans sources

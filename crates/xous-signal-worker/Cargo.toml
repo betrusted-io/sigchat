@@ -1,0 +1,68 @@
+[package]
+name = "xous-signal-worker"
+description = "Worker thread that owns presage::Manager on a LocalExecutor; exposes a Cmd/Event channel surface to the rest of xas."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[features]
+# `link-uri-uart` logs the full sgnl:// provisioning URL during
+#   linking. The URL is the link credential for its ~60 s window —
+#   anyone with UART access can replay it to pair their own device —
+#   so default builds log only its length. Enable for the
+#   signal-cli-pairing pipeline and tests/hosted/test_link_qr.sh,
+#   which grep the URL line.
+# `verbose-pii` restores full identifiers (ACI UUIDs, e164 numbers)
+#   in log lines; default builds emit the redacted form.
+link-uri-uart = []
+verbose-pii = ["presage-store-pddb/verbose-pii"]
+
+[dependencies]
+# The Manager state machine + storage trait.
+presage = { git = "https://github.com/whisperfish/presage", rev = "600c4ed" }
+
+# PDDB-backed storage impl.
+presage-store-pddb = { path = "../presage-store-pddb" }
+
+# Local-executor + sync→async channels. Worker thread parks on
+# `executor.run(...)`; cmd/event channels are async-channel for the
+# sync `try_send`/`send_blocking` ↔ async `send`/`recv` duality.
+async-executor = { workspace = true }
+async-channel = { workspace = true }
+futures-lite = { workspace = true }
+
+# `Manager::link_secondary_device` takes
+# `futures::channel::oneshot::Sender<Url>` and runs two sub-futures
+# concurrently. We use the same `futures` 0.3 primitives the upstream
+# API expects rather than reinventing oneshot via async-channel; the
+# dep is already transitive through presage so it's free in dep-graph
+# terms.
+futures = { version = "0.3", default-features = false, features = ["std"] }
+
+# Async-runtime-agnostic Delay used by `handle_send`'s retry-on-WsClosing
+# loop. Same crate libsignal-service-rs uses internally for its
+# keepalive timer; already in the dep-graph transitively, declared here
+# for explicitness.
+futures-timer = "3"
+
+# The provisioning URL is a `url::Url` (presage's API uses it
+# directly). Held explicitly so the worker doesn't depend on
+# transitive resolution.
+url = "2.5"
+
+# Real `HttpClient` registered with libsignal-service's thread-local
+# so `Manager::link_secondary_device` can reach chat.signal.org. Without
+# it the Manager panics with "set_http_client must be called on this
+# thread first" the moment it tries to issue the registration HTTP.
+xous-net-bridge = { path = "../xous-net-bridge" }
+
+# Logging — the worker runs entirely off the main thread, so the only
+# way to debug it is through `tracing`. Production binaries route this
+# to xous logger; hosted-mode tests just need the messages to surface.
+tracing = "0.1"
+# `log` for diagnostic lines that need to surface through xas's
+# env_logger / xous-api-log pipeline. `tracing` has no subscriber
+# configured in our binary, so pure tracing events go nowhere.
+log = "0.4"

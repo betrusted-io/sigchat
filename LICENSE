@@ -1,1 +1,15 @@
-AGPL-3.0 OR Apache-2.0
+Copyright 2026 tunnell
+
+This project is dual-licensed under your choice of either:
+
+- the GNU Affero General Public License, version 3.0 — see LICENSE-AGPL
+- the Apache License, version 2.0 — see LICENSE-APACHE
+
+`SPDX-License-Identifier: AGPL-3.0 OR Apache-2.0`
+
+We have a *desire* to license `xas` under Apache-2.0 so elements may be
+readily incorporated into other future Xous-related projects. We are
+*required* to license any derivative works of [signalapp/libsignal][libsignal]
+under AGPL-3.0.
+
+[libsignal]: https://github.com/signalapp/libsignal

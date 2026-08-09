@@ -1,32 +1,19 @@
-# Rust directories
-target
-**/*.rs.bk
+target/
+Cargo.lock.bak
+*.swp
+.DS_Store
 
-# Emacs
-*~
+# Test harness env file holds real Signal account numbers; sample
+# is checked in as `tests/hosted/test_env.example`.
+tests/hosted/test_env
 
-# don't record weirdnesses dealing with vscode
-.vscode
-.vs
-settings.json
-
-# Distribution / packaging
-.Python
-build/
-develop-eggs/
+# Stage 9b xtask + Renode test outputs
 dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-share/python-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-*.pyc
-MANIFEST
+log.html
+logs/
+report.html
+robot_output.xml
+snapshots/
+
+# Per-robot renode-test results (run-renode-tests.sh -r dirs)
+tests/renode/renode-results/

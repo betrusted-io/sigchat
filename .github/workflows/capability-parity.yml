@@ -1,0 +1,25 @@
+# Weekly capability-parity check: Signal-Server DeviceCapability.java vs
+# the libsignal-service-rs fork rev pinned in Cargo.toml. Spec and
+# rationale: ignore/research-v0.4/fork-drift.md §5 — this catches the
+# server-adds-a-preventDowngrade-capability class (2026-07 link 409)
+# before hardware does.
+#
+# NOTE: GitHub only registers `schedule` triggers from the default
+# branch — this workflow does nothing on a cron until it lands on main.
+# `workflow_dispatch` works from any branch that has the file.
+name: capability-parity
+
+on:
+  schedule:
+    - cron: "17 6 * * 1" # weekly, Monday 06:17 UTC
+  workflow_dispatch:
+
+jobs:
+  parity:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Read-only: two regex passes over three fetched files. Exit 1 =
+      # parity mismatch, exit 2 = fetch/parse broke (never a silent pass).
+      - name: Check capability parity
+        run: python3 tests/ci/check_capability_parity.py

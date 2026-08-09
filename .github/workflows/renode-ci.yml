@@ -1,0 +1,288 @@
+# Renode CI for xas: boots the CANONICAL image (xas ELF features
+# pddb-real,precursor) under the CI-grade tests/renode/xas-ci.resc machine
+# (headless SoC + EC pair, per-run 0xFF flash scratch file) and runs the four
+# canonical-image robots. Mirrors the proven two-job pattern of
+# tunnell/xous-core's .github/workflows/pddb-renode-ci.yml: toolchain
+# resolution against the latest betrusted-io/rust release, artifact handoff
+# from a build job to an emulation job, and a PINNED portable Renode.
+#
+# v1 scope: only the four robots that share the canonical feature set
+# (xas-smoke, xas-bulk-write-boot, xas-selective-sync, xas-instrument-noise).
+# The three probe robots (xas-pddb-probe, xas-probe, xas-send-batch) each
+# need their own per-feature ELF variant and image bundle (see the feature
+# map in tests/renode/run-renode-tests.sh), so they stay local-only via
+# run-renode-tests.sh for now. Documented follow-up: build the probe
+# variants as additional artifacts (or a build matrix) and run those legs
+# with their own SKIP_BUNDLE image downloads.
+
+# ACTIVATION NOTE: workflow_dispatch and schedule triggers only register
+# from the repository's DEFAULT branch (main). main moves by fast-forward
+# at release time, so this workflow becomes remotely triggerable at the
+# next release; until then run the same suite locally:
+#   tests/renode/run-renode-tests.sh --all
+name: Renode CI
+
+# Trigger policy: manual-only plus a weekly cron. The renode-test job costs
+# roughly 30-60 runner-minutes per run (four robots, serial, 900 s wall cap
+# each) on top of a full image build, so per-push/per-PR triggers are a
+# deliberate opt-in — uncomment the block below to turn them on.
+on:
+  workflow_dispatch:
+  schedule:
+    # Weekly (Mondays 06:00 UTC): keeps the suite exercised against the
+    # latest published toolkit without a per-push cost. Scheduled runs only
+    # fire from the default branch, so this activates once merged there.
+    - cron: '0 6 * * 1'
+  # push:
+  #   branches: [dev]
+  # pull_request:
+  #   branches: [dev]
+
+concurrency:
+  group: renode-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: Build canonical xas image (app-image-xip)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Install system build deps
+        # build-essential/pkg-config/libssl-dev/protobuf-compiler: same set
+        # as ci.yml's rv32-build (the spqr build script validates its
+        # protobufs with protoc at compile time). libxkbcommon-dev: the
+        # xous-core xtask dependency graph needs it (upstream
+        # pddb-renode-ci.yml installs the same).
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config libssl-dev \
+            protobuf-compiler libxkbcommon-dev
+
+      # Track the LATEST published toolkit rather than pinning: `cargo xtask
+      # install-toolkit` needs the host rustc to exactly match a betrusted-io/
+      # rust release tag (xtask/src/utils.rs), so resolve that repo's newest
+      # release (tag `<rustc>.<n>`, e.g. 1.97.0.1) and install the matching
+      # rustc; install-toolkit then downloads the matching toolkit. A red
+      # weekly run after a toolkit bump means client-side std behavior moved.
+      # (jq is preinstalled on ubuntu-latest; the releases API is public, no
+      # token needed.)
+      - name: Resolve and install the latest betrusted-io/rust toolchain
+        run: |
+          TAG=$(curl -fsSL https://api.github.com/repos/betrusted-io/rust/releases/latest | jq -r .tag_name)
+          RUSTC_VER=$(echo "$TAG" | cut -d. -f1,2,3)
+          echo "latest betrusted-io/rust release: $TAG -> rustc $RUSTC_VER"
+          rustup toolchain install "$RUSTC_VER" --profile minimal
+          rustup default "$RUSTC_VER"
+          # Persisted for the xas build step below: xous-app-signal's
+          # rust-toolchain.toml (channel = "stable") outranks `rustup
+          # default`, so that step must pin via the RUSTUP_TOOLCHAIN env
+          # var (which outranks the file) or it would silently build with
+          # the runner's stock stable — a toolchain install-toolkit never
+          # provisioned with the rv32-xous sysroot.
+          echo "RUSTC_VER=$RUSTC_VER" >> "$GITHUB_ENV"
+
+      - name: Check out xas
+        uses: actions/checkout@v4
+        with:
+          path: xous-app-signal
+
+      - name: Clone the xous-core sibling (tunnell/xous-core@xas-integration)
+        # xas-integration, NOT the xas-v0.2 release pin the ci.yml jobs use:
+        # the renode harness was built and validated against xas-integration,
+        # which tracks upstream's emulation/ tree with the CI machine
+        # conventions (emulation/tests/pddb-ci.resc and the peripheral set
+        # tests/renode/xas-ci.resc pulls in via `path add
+        # $xous_core_root/emulation`) that the frozen xas-v0.2 pin predates.
+        # It also registers xas in apps/manifest.json, which app-image-xip
+        # requires. The apps.rs heredoc is the BUILDING.md §2.1 bootstrap:
+        # the file is xtask-generated and gitignored, but the standalone
+        # cargo build below links gam::APP_NAME_XAS before any xtask has run.
+        run: |
+          git clone --depth 1 -b xas-integration https://github.com/tunnell/xous-core.git
+          mkdir -p repos
+          ln -s ../xous-core repos/xous-core
+          cat > xous-core/services/gam/src/apps.rs <<'EOF'
+          #![cfg_attr(rustfmt, rustfmt_skip)]
+          // CI stand-in for the xtask-generated apps.rs (BUILDING.md §2.1).
+          pub const APP_NAME_XAS: &'static str = "Signal";
+          pub const APP_MENU_0_XAS: &'static str = "Signal Submenu 0";
+
+          pub const EXPECTED_APP_CONTEXTS: &[&'static str] = &[
+              APP_NAME_XAS,
+              APP_MENU_0_XAS,
+          ];
+          EOF
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            xous-app-signal
+            xous-core
+
+      - name: Install RISC-V toolkit
+        working-directory: xous-core
+        run: cargo xtask install-toolkit --force --no-verify
+
+      - name: Clean out old xous-core target directory (in case of libstd change)
+        run: rm -rf xous-core/target/*
+
+      - name: Build the canonical xas ELF (rv32, release)
+        working-directory: xous-app-signal
+        # pddb-real,precursor is the CANONICAL feature set: all four robots
+        # in this workflow boot this exact variant (feature map in
+        # tests/renode/run-renode-tests.sh).
+        env:
+          # See the resolve step: overrides rust-toolchain.toml so this
+          # build uses the toolkit-carrying toolchain, not stock stable.
+          RUSTUP_TOOLCHAIN: ${{ env.RUSTC_VER }}
+        run: |
+          cargo build --target riscv32imac-unknown-xous-elf --release \
+            -p xous-app-signal --features pddb-real,precursor
+
+      - name: Bundle loader.bin + xous.img (app-image-xip)
+        working-directory: xous-core
+        # app-image-xip, NOT app-image: the all-in-RAM bundle (~12.9 MB
+        # xous.img) exceeds the Precursor's 16 MiB RAM once every service
+        # unpacks — under Renode the kernel OOM-panics into a reboot loop
+        # (BUILDING.md §2.7). --git-describe is mandatory on a tag-less fork
+        # clone, and v0.9.21-0-g0000000 is the harness's pinned EMULATION
+        # version string — CI is emulation, not hardware; hardware bundles
+        # embed the real git describe via tests/precursor/build-and-bundle.sh.
+        run: |
+          cargo xtask app-image-xip \
+            "xas:$GITHUB_WORKSPACE/xous-app-signal/target/riscv32imac-unknown-xous-elf/release/xas" \
+            vault \
+            transientdisk \
+            --kernel-feature big-heap \
+            --git-describe v0.9.21-0-g0000000 \
+            --git-rev g0000000
+
+      - name: Upload image artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: xas-canonical-image
+          if-no-files-found: error
+          retention-days: 7
+          path: |
+            xous-core/target/riscv32imac-unknown-xous-elf/release/loader.bin
+            xous-core/target/riscv32imac-unknown-xous-elf/release/xous.img
+
+  renode-test:
+    name: Run the canonical-image robots under renode-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    needs: build
+    # actions: read is required by download-artifact once permissions are set
+    # explicitly (an explicit block replaces the default token scopes).
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Check out xas
+        uses: actions/checkout@v4
+        with:
+          path: xous-app-signal
+
+      - name: Clone the xous-core sibling (tunnell/xous-core@xas-integration)
+        # Same branch as the build job: tests/renode/xas-ci.resc resolves its
+        # C# peripherals, .repl platform descriptions, EC firmware blobs and
+        # utralib/renode/soc_csr.bin out of this tree, and must see the SAME
+        # tree the image was built from. No apps.rs bootstrap here — nothing
+        # compiles in this job.
+        run: |
+          git clone --depth 1 -b xas-integration https://github.com/tunnell/xous-core.git
+          mkdir -p repos
+          ln -s ../xous-core repos/xous-core
+
+      # Both files land exactly where the robots expect them: this directory
+      # is ${IMAGE_DIR} in tests/renode/xas-ci-common.resource
+      # (${XOUS_CORE_DIR}/target/riscv32imac-unknown-xous-elf/release), the
+      # same path xas-ci.resc's $image_dir points at.
+      - name: Download image artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: xas-canonical-image
+          path: xous-core/target/riscv32imac-unknown-xous-elf/release
+
+      # PINNED dated Renode portable build (self-contained dotnet variant; no
+      # mono/dotnet host dependency). 1.16.1+20260417git9d55b4e69 is the exact
+      # build the suite was validated against locally (renode --version:
+      # "Renode v1.16.1.4499, build 9d55b4e6-202604170227"). Newer dated
+      # builds exist at https://dl.antmicro.com/projects/renode/builds/ —
+      # bump deliberately, re-validating with run-renode-tests.sh --all
+      # first, and do NOT switch to renode-latest (an unpinned emulator makes
+      # test regressions unattributable).
+      - name: Download and extract Renode portable
+        run: |
+          RENODE_TARBALL="renode-1.16.1+20260417git9d55b4e69.linux-portable-dotnet.tar.gz"
+          curl --fail --location --retry 5 -o /tmp/renode.tar.gz \
+            "https://dl.antmicro.com/projects/renode/builds/${RENODE_TARBALL}"
+          mkdir -p "$HOME/renode_portable"
+          tar -xzf /tmp/renode.tar.gz --strip-components=1 -C "$HOME/renode_portable"
+          echo "$HOME/renode_portable" >> "$GITHUB_PATH"
+          "$HOME/renode_portable/renode" --version
+
+      - name: Install renode-test python requirements
+        run: python3 -m pip install -r "$HOME/renode_portable/tests/requirements.txt"
+
+      - name: Run the four canonical-image robots
+        timeout-minutes: 75
+        working-directory: xous-app-signal
+        env:
+          # Quoted: bare YES is YAML-1.1 boolean true, which would export
+          # "true" instead of the literal string Renode's scripts look for.
+          RENODE_CI_MODE: "YES"
+          # SKIP_BUNDLE=1 is the wrapper's bundle-skipping CI mode: boot the
+          # downloaded xous.img as-is instead of rebuilding/re-bundling per
+          # robot. Safe here because all four robots share the canonical
+          # feature set the build job bundled. Per-robot fresh 0xFF flash
+          # scratch files and log paths are provisioned by the robots
+          # themselves (Prepare Fresh Flash in xas-ci-common.resource), so
+          # no separate provisioning step is needed.
+          SKIP_BUNDLE: "1"
+          XOUS_CORE_DIR: ${{ github.workspace }}/xous-core
+        # The wrapper serializes the robots, caps each at
+        # ROBOT_TIMEOUT_SECS (default 900 s) wall-clock via timeout(1), and
+        # keeps going after a failure so the summary table is complete; its
+        # exit code is the overall verdict. `shell: bash` is explicit
+        # because only the explicit form runs with `-o pipefail` (the
+        # implicit default is plain `bash -e`), and without pipefail the
+        # tee would mask the wrapper's exit code.
+        shell: bash
+        run: |
+          tests/renode/run-renode-tests.sh \
+            xas-smoke xas-bulk-write-boot xas-selective-sync xas-instrument-noise \
+            | tee "$GITHUB_WORKSPACE/renode-run.log"
+
+      - name: Append the wrapper's summary table to the step summary
+        if: always()
+        run: |
+          {
+            echo '```'
+            awk '/^==== renode suite summary ====$/,/^==============================$/' \
+              "$GITHUB_WORKSPACE/renode-run.log"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY" || true
+
+      # Robot Framework xml/html per robot (tests/renode/renode-results/
+      # <robot>/), plus the file-backed console/kernel UART logs
+      # (target/xas-ci/<robot>-{console,kernel}.log) — the first stop for
+      # triage. *.log only, NOT the whole xas-ci/ dir: the per-robot
+      # <robot>-flash.bin scratch files also live there, and those are
+      # 128 MiB of mostly-encrypted (incompressible) NOR image each.
+      # `always()` so a red run still uploads.
+      - name: Upload robot results and logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xas-renode-ci-results
+          if-no-files-found: warn
+          retention-days: 14
+          path: |
+            xous-app-signal/tests/renode/renode-results/
+            xous-app-signal/target/xas-ci/*.log
+            renode-run.log

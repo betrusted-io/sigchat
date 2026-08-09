@@ -1,0 +1,17 @@
+[toolchain]
+# `stable` resolves to whatever the active stable Rust is — currently 1.95.0
+# on this dev box. We use `stable` (rather than pinning the bare version
+# string `1.95.0`) because the `riscv32imac-unknown-xous-elf` target on this
+# machine is registered under the `stable` channel, not under `1.95.0`. Both
+# channels point at the same rustc today; if they diverge in the future,
+# re-evaluate.
+#
+# 1.95.0 is well above the 1.85 minimum that edition = "2024" requires.
+# xous-core itself does not pin a toolchain (verified 2026-05); downstream
+# Xous apps install via `betrusted-io/rust`. For libsignal's own builds,
+# `signalapp/libsignal/rust-toolchain` pins `nightly-2026-03-23`; we don't
+# need that nightly because we're a downstream consumer, not a libsignal
+# developer.
+channel = "stable"
+components = ["rustfmt", "clippy"]
+targets = ["riscv32imac-unknown-xous-elf"]

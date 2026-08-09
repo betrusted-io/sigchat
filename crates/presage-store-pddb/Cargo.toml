@@ -1,0 +1,106 @@
+[package]
+name = "presage-store-pddb"
+description = "PDDB-backed implementation of presage's storage traits."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+# presage pinned to commit 600c4ed. The workspace
+# [patch."https://github.com/whisperfish/presage"] in xous-app-signal's
+# top-level Cargo.toml redirects this to the rev-pinned tunnell/presage
+# fork (docs/FORKS.md), which carries the local tokio-removal patches.
+presage = { git = "https://github.com/whisperfish/presage", rev = "600c4ed" }
+
+# Serde + JSON for state serialization. JSON (not bincode) so the
+# on-disk format is debuggable from `pddbcli` dumps. Same choice
+# presage-store-sqlite makes; cost is small for the < 1 KiB state blobs
+# we serialize.
+#
+# `SessionBundle` is the exception — it's the hot, large blob written
+# per receive (`HashMap<u32, Vec<u8>>` where the `Vec<u8>` is
+# libsignal's already-binary `SessionRecord::serialize()` output). JSON
+# encodes `Vec<u8>` as a decimal-int array (`[1,2,3,...]`) which
+# inflates the bytes 3-4×, pushing a single logical `put` over the
+# per-IPC chunk size so it splits into ~6 chunked `Opcode::WriteKey`
+# IPCs (each paying its own server-side basis sync). We route only
+# the SessionBundle through bincode (compact binary, already in the
+# transitive dep tree via libsignal); legacy JSON blobs already on
+# disk are detected and decoded on read, then re-written as bincode.
+# See `protocol/session_store.rs::{serialize,deserialize}_session_bundle`.
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+bincode = "1"
+
+# Used to derive the per-uuid+profilekey lookup key for the
+# `signal.profiles` dict. Same pattern as presage-store-sled
+# (`profile_key_for_uuid` at presage-store-sled/src/lib.rs:275 in
+# whisperfish/presage).
+sha2 = "0.10"
+
+# Error type derives.
+thiserror = "1"
+
+# `futures-lite::future::block_on` drives the async store API in unit
+# tests without pulling tokio into the production dep tree.
+futures-lite = { workspace = true }
+
+# `IdentityKeyStore` / `SessionStore` / `PreKeyStore` /
+# `KyberPreKeyStoreExt` etc. all use `#[async_trait(?Send)]` in
+# their trait definitions; our impls have to match.
+async-trait = "0.1"
+
+# `KyberPreKeyStoreExt`'s stale-marking methods take
+# `chrono::DateTime<Utc>` per the trait signature. We don't act on the
+# timestamps for now (matches presage-store-sqlite), but the type has
+# to be in scope for the impl to compile.
+chrono = { version = "0.4", default-features = false, features = ["serde"] }
+
+# `ContentBody` serialization — protobuf round-trip via prost, matching
+# presage-store-sled's ContentProto pattern. Pinned to 0.13 to match
+# libsignal-service-rs's `prost = "0.13"`; 0.14 would compile but
+# `presage::proto::Content` would only impl `prost_0_13::Message`, so
+# `encode_to_vec`/`decode` wouldn't resolve.
+prost = "0.13"
+
+# `IdentityKeyStore` logs unrecognized-identity TOFU events through
+# `tracing`. Already a transitive dep through presage /
+# libsignal-service-rs; declaring it directly so the import doesn't
+# depend on transitive resolution that could change.
+tracing = "0.1"
+
+# Hand-rolled PDDB IPC client — the real `KvBackend` impl in
+# backend_pddb.rs wraps it. Cross-target: xous-rs's hosted-mode
+# emulation carries the wire format over Unix-domain sockets to
+# services/pddb, so the same client works on hosted-linux and
+# rv32-xous.
+xous-pddb-ipc = { path = "../xous-pddb-ipc" }
+
+# base64-encodes the group master_key inside the per-thread
+# dictionary-name hash. Same hashing scheme presage-store-sled uses
+# (presage-store-sled/src/content.rs:471-485 in whisperfish/presage).
+base64 = "0.22"
+
+[features]
+# `mock-backend` (default for hosted/test builds) selects the
+#   in-memory `MockBackend` from `backend_mock.rs`. Always available;
+#   tests rely on it.
+# `pddb-backend` selects the real `PddbBackend` from `backend_pddb.rs`,
+#   which wraps `xous_pddb_ipc::PddbClient` for both hosted and rv32
+#   targets.
+# `verbose-pii` restores full identifiers (peer ACI UUIDs as PDDB key
+#   names, e164 numbers, contact labels) in log lines for ops triage.
+#   Default builds emit the redacted form from `redact::log_id`.
+default = []
+mock-backend = []
+pddb-backend = []
+verbose-pii = []
+
+[dev-dependencies]
+# `RegistrationData` construction in tests needs a few presage / libsignal
+# constructors. They come transitively through `presage`; we only need
+# `phonenumber` for parsing the dummy E.164 in fixtures.
+phonenumber = "0.3"
+rand = "0.9"
