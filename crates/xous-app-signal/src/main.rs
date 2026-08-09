@@ -28,7 +28,9 @@ mod store;
 
 use async_channel::bounded;
 use presage_store_pddb::PddbStore;
+// Migrated <<<<<
 use xous_signal_worker::{Cmd, Event, run_signal_worker};
+// Migrated >>>>>
 
 /// `__getrandom_v03_custom` implementation backed by xous-core's
 /// TRNG service.
@@ -114,6 +116,7 @@ unsafe extern "Rust" fn __getrandom_v03_custom(dest: *mut u8, len: usize) -> Res
     })
 }
 
+// Migrated <<<<<
 /// Capacity of the [`Cmd`] and [`Event`] async channels between
 /// the UI and the worker.
 ///
@@ -133,6 +136,7 @@ unsafe extern "Rust" fn __getrandom_v03_custom(dest: *mut u8, len: usize) -> Res
 /// post-Drop bare-`String` body exposure window bounded (SecretBox
 /// wrapping of message bodies is tracked in issue #37, item 3).
 const CHAN_CAP: usize = 16;
+// Migrated <<<<<
 
 /// Construct the [`PddbStore`] the worker will use.
 ///
@@ -182,13 +186,13 @@ fn main() -> std::io::Result<()> {
     log::info!("xas: starting");
 
     let store = build_store();
-
+// Migrated <<<<<
     let (cmd_tx, cmd_rx) = bounded::<Cmd>(CHAN_CAP);
     let (event_tx, event_rx) = bounded::<Event>(CHAN_CAP);
 
     let worker = run_signal_worker(store, cmd_rx, event_tx);
     log::info!("xas: worker started");
-
+// Migrated >>>>>
     #[cfg(feature = "probe-flow")]
     probe_network();
 
@@ -251,10 +255,12 @@ fn main() -> std::io::Result<()> {
     // `cargo run` outside Xous errors out here.
     gam_app::run(cmd_tx, event_rx).map_err(std::io::Error::other)?;
 
+// Migrated <<<<<
     // Worker has been told to shut down; join it. If the join hangs
     // it's a worker-side bug — surface as a nonzero exit, not a
     // silent hang.
     let _ = worker.join();
+// Migrated >>>>>
     log::info!("xas: exiting");
     Ok(())
 }

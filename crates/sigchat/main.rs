@@ -9,6 +9,28 @@ use locales::t;
 use num_traits::*;
 use sigchat::SigChat;
 use xous_ipc::Buffer;
+use xous_signal_worker::{Cmd, Event, run_signal_worker};
+
+
+/// Capacity of the [`Cmd`] and [`Event`] async channels between
+/// the UI and the worker.
+///
+/// Sized for the UI's typical command pattern: a small handful of
+/// commands in flight at any time (link, send, sync, account
+/// info). The worker drains commands eagerly so back-pressure on
+/// the UI side is unlikely on real workloads.
+///
+/// Capacity tradeoff: the `event_tx` cap bounds how many
+/// back-pressured `Event::Message` emissions
+/// `xous_signal_worker::manager_task` can buffer before its
+/// `event_tx.send(...).await` blocks the worker's receive stream.
+/// Too small → an idle or slow UI stalls inbound receive; too large
+/// → unbounded memory on a poorly-behaved peer with high message
+/// flux. 16 is the negotiated middle: enough for a bursty receive
+/// from a chat the user just opened, small enough to keep the
+/// post-Drop bare-`String` body exposure window bounded (SecretBox
+/// wrapping of message bodies is tracked in issue #37, item 3).
+const CHAN_CAP: usize = 16;
 
 fn main() -> ! {
     let stack_size = 1024 * 1024;
@@ -70,6 +92,11 @@ fn wrapped_main() -> ! {
     })
     .expect("failed add menu");
 
+    let (cmd_tx, cmd_rx) = bounded::<Cmd>(CHAN_CAP);
+    let (event_tx, event_rx) = bounded::<Event>(CHAN_CAP);
+    let worker = run_signal_worker(store, cmd_rx, event_tx);
+    log::info!("xas: worker started");
+
     let mut sigchat = SigChat::new(&chat);
     let mut first_focus = true;
     let mut user_post: Option<String> = None;
@@ -130,6 +157,12 @@ fn wrapped_main() -> ! {
             user_post = None;
         }
     }
+
+    // Worker has been told to shut down; join it. If the join hangs
+    // it's a worker-side bug — surface as a nonzero exit, not a
+    // silent hang.
+    let _ = worker.join();
+
     // clean up our program
     log::error!("main loop exit, destroying servers");
     xns.unregister_server(sid).unwrap();
