@@ -107,9 +107,11 @@ enum XasOp {
     /// GAM signals focus gained/lost — used to repaint on
     /// re-foreground.
     FocusChange = 2,
+// Migrated <<<<<
     /// The worker-event forwarder thread woke us; drain the
     /// pending-events deque.
     WorkerEvent = 3,
+// Migrated >>>>>
 }
 
 /// One screen state in the UI's stack-of-one model. See the
@@ -1189,6 +1191,7 @@ pub fn run(cmd_tx: Sender<Cmd>, event_rx: Receiver<Event>) -> Result<(), String>
 
     let _ = gam.allow_mainmenu();
 
+// Migrated <<<<<
     // === Worker-event forwarder ===
     //
     // gam_app's main loop blocks on `xous::receive_message(sid)`,
@@ -1216,6 +1219,7 @@ pub fn run(cmd_tx: Sender<Cmd>, event_rx: Receiver<Event>) -> Result<(), String>
             })
             .map_err(|e| format!("spawn forwarder: {}", e))?;
     }
+// Migrated >>>>>
 
     let modals_xns = xous_names::XousNames::new().map_err(|e| format!("XousNames for modals: {:?}", e))?;
 
@@ -1284,6 +1288,7 @@ pub fn run(cmd_tx: Sender<Cmd>, event_rx: Receiver<Event>) -> Result<(), String>
                     }
                 });
             }
+// Migrated <<<<<
             Some(XasOp::WorkerEvent) => {
                 let drained: Vec<Event> = {
                     let mut q = pending_events.lock().unwrap();
@@ -1296,6 +1301,7 @@ pub fn run(cmd_tx: Sender<Cmd>, event_rx: Receiver<Event>) -> Result<(), String>
                     log::warn!("xas/gam_app: render after WorkerEvent: {}", e);
                 }
             }
+// Migrated >>>>>
             _ => {
                 log::debug!("xas/gam_app: unknown msg id={}", msg.body.id());
             }
@@ -1574,6 +1580,7 @@ fn handle_keys(
     }
 }
 
+// Migrated <<<<<
 /// Process a worker [`Event`] delivered via the forwarder thread.
 /// Mutates `app` state in place; the caller renders once after
 /// draining the entire deque, so multiple events batch into one
@@ -1906,6 +1913,7 @@ fn handle_username_resolve_result(app: &mut App, result: Result<Option<Uuid>, St
         }
     }
 }
+// Migrated >>>>>
 
 /// Hosted-mode helper: read `$HOME/.xas-link-attempts`, increment
 /// it, and return the device name to default to. Each link attempt

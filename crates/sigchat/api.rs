@@ -10,6 +10,9 @@ pub enum SigchatOp {
     Menu,
     /// chat ui user post
     Post,
+    /// The worker-event forwarder thread woke us; drain the
+    /// pending-events deque.
+    WorkerEvent,
     /// chat ui keystroke
     Rawkeys,
     /// exit the application
