@@ -376,19 +376,24 @@ fn handle_worker_event(
             }
         }
         Event::LinkError(msg) => {
-            log::warn!("xas/gam_app: LinkError: {}", msg);
-            // If the user already navigated away (e.g., cancelled via
-            // Esc on Screen::Linking), linking_in_progress is already
-            // false. Don't bounce them onto the failure screen — the
-            // late-arriving error is a confirmation that the cancel
-            // took effect, not a user-facing problem.
-            if !app.linking_in_progress {
-                log::info!("xas/gam_app: ignoring late LinkError (link not in progress; user cancelled)");
-                return;
+            log::info!("failed to link Signal Account: {}", msg);
+            self.chat.set_busy_state(false);
+            Err(Error::new(
+                ErrorKind::Other,
+                "failed to link Signal Account",
+            ))
+            self.modals
+               .show_notification(t!("sigchat.account.link.fail", locales::LANG), None)
+               .expect("notification failed");
+            if self.yes_no_approval(&format!(
+                "{}\n{}",
+                t!("sigchat.account.delete.confirm", locales::LANG),
+                entry.description
+            )) {
+                Account::delete(SIGCHAT_ACCOUNT).unwrap_or_else(|e| {
+                    log::warn!("failed to delete unregistered account from pddb: {e}")
+                });
             }
-            app.linking_in_progress = false;
-            app.screen = Screen::Linked { kind: LinkedKind::Failure };
-            app.last_status = msg;
         }
         Event::StaleStoreDetected => {
             // The worker refused Cmd::LinkDevice: the store still holds

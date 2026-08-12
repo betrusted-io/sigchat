@@ -260,28 +260,6 @@ impl<'a> SigChat<'a> {
                         self.chat.set_busy_state(false);
                         Ok(Account::read(SIGCHAT_ACCOUNT)?)
                     }
-                    Ok(false) => {
-                        log::info!("failed to link Signal Account");
-                        self.chat.set_busy_state(false);
-                        Err(Error::new(
-                            ErrorKind::Other,
-                            "failed to link Signal Account",
-                        ))
-                    }
-                    Err(e) => {
-                        log::warn!("error while linking Signal Account: {e}");
-                        Account::delete(SIGCHAT_ACCOUNT).unwrap_or_else(|e| {
-                            log::warn!("failed to delete unregistered account from pddb: {e}")
-                        });
-                        self.chat.set_busy_state(false);
-                        self.modals
-                            .show_notification(&format!("{}", e), None)
-                            .expect("notification failed");
-                        Err(Error::new(
-                            ErrorKind::Other,
-                            "error while linking Signal Account",
-                        ))
-                    }
                 }
             }
             Err(e) => {

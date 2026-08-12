@@ -27,12 +27,26 @@
         "ja": "Link to an existing Signal Account *EN*",
         "zh": "Link to an existing Signal Account *EN*"
     },
+    "sigchat.account.delete.confirm": {
+        "en": "Delete Signal Account details from this device?",
+        "en-tts": "Delete Signal Account details from this device?",
+        "fr": "Delete Signal Account details from this device? *EN*",
+        "ja": "Delete Signal Account details from this device? *EN*",
+        "zh": "Delete Signal Account details from this device? *EN*",
+    },
     "sigchat.account.link.name": {
         "en": "Please provide a name for this device",
         "en-tts": "Please provide a name for this device",
         "fr": "Please provide a name for this device *EN*",
         "ja": "Please provide a name for this device *EN*",
         "zh": "Please provide a name for this device *EN*"
+    },
+    "sigchat.account.link.fail": {
+        "en": "Failed to link this device",
+        "en-tts": "Failed to link this device",
+        "fr": "Failed to link this device *EN*",
+        "ja": "Failed to link this device *EN*",
+        "zh": "Failed to link this device *EN*",
     },
     "sigchat.account.link.scan": {
         "en": "1. Open Signal on your phone\n2. Tap into settings, then tap `Linked Devices`\n3. Tap ⊕ or `Link New Device` and scan",
