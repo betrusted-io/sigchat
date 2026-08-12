@@ -447,4 +447,25 @@ impl<'a> SigChat<'a> {
             _ => false,
         }
     }
+
+    /// Returns true if "Yes" option is chosen
+    ///
+    fn yes_no_modal(&self, query: &str) -> bool {
+        self.modals
+            .add_list(vec![t!("sigchat.yes", locales::LANG), t!("sigchat.no", locales::LANG)])
+            .expect("couldn't build confirmation dialog");
+        match self.modals.get_radiobutton(query) {
+            Ok(response) => {
+                if &response == t!("sigchat.yes", locales::LANG) {
+                    true
+                } else {
+                    false
+                }
+            }
+            _ => {
+                log::error!("get yes/no failed");
+                false
+            }
+        }
+    }
 }

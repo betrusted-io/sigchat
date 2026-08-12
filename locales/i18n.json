@@ -90,6 +90,13 @@
         "ja": "Close menu *EN*",
         "zh": "Close menu *EN*"
     },
+    "sigchat.no": {
+        "en": "No",
+        "en-tts": "No",
+        "fr": "Non",
+        "ja": "いいえ",
+        "zh": "不"
+    },
     "sigchat.number": {
         "en": "Number",
         "en-tts": "Number",
@@ -166,5 +173,12 @@
         "fr": "WiFi pas connecté",
         "ja": "WiFi not connected.  Entering read-only mode *EN*",
         "zh": "WiFi not connected.  Entering read-only mode *EN*"
+    },
+    "sigchat.yes": {
+        "en": "Yes",
+        "en-tts": "Yes",
+        "fr": "Oui",
+        "ja": "はい",
+        "zh": "确定"
     }
 }
